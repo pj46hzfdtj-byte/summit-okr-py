@@ -17,11 +17,17 @@ class AuthDialog(QDialog):
         super().__init__()
         self.setWindowTitle("VIS OKR - 登录")
         self.setModal(True)
-        self.resize(460, 640)
+        # 尺寸不超过屏幕可用区域（小屏/高 DPI 下避免底部按钮超出屏幕），
+        # 同时防止窗口被拖小导致登录按钮被裁掉
+        from PySide6.QtWidgets import QApplication
+        scr = QApplication.primaryScreen()
+        avail = scr.availableGeometry() if scr else None
+        w, h = (460, 640) if avail is None else (min(460, avail.width() - 40), min(640, avail.height() - 40))
+        self.setMinimumSize(min(420, w), min(520, h))
+        self.resize(w, h)
         self._register = False
 
         # 让子控件（AuroraWidget）能解析到当前主题 token
-        from PySide6.QtWidgets import QApplication
         app_inst = QApplication.instance()
         dark = getattr(getattr(app_inst, "app_store", None), "system_dark", False)
         theme = getattr(getattr(app_inst, "app_store", None), "theme", "light")

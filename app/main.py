@@ -60,10 +60,15 @@ class App(QApplication):
         sock = self._server.nextPendingConnection()
         if sock:
             sock.readAll()
-            if self.shell:
-                self.shell.showNormal()
-                self.shell.raise_()
-                self.shell.activateWindow()
+            # 唤起当前可见的顶层窗口（主窗口或登录对话框）
+            from PySide6.QtWidgets import QWidget
+            for w in self.topLevelWidgets():
+                if isinstance(w, QWidget) and w.isVisible():
+                    if w.isMinimized():
+                        w.showNormal()
+                    w.raise_()
+                    w.activateWindow()
+                    break
             sock.disconnectFromServer()
 
     def _on_session_expired(self):
