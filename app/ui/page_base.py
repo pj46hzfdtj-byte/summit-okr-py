@@ -19,8 +19,8 @@ class Page(QScrollArea):
         self._root = QWidget()
         self._root.setObjectName("PageRoot")
         self.body_layout = QVBoxLayout(self._root)
-        self.body_layout.setContentsMargins(24, 20, 24, 24)
-        self.body_layout.setSpacing(14)
+        self.body_layout.setContentsMargins(24, 24, 24, 24)
+        self.body_layout.setSpacing(16)
         self.setWidget(self._root)
 
     def refresh(self):  # 子类覆写

@@ -1,10 +1,16 @@
-"""主窗口外壳：侧边栏导航 + 顶栏（通知铃铛）+ QStackedWidget 页面栈。"""
+"""主窗口外壳：全宽顶栏（折叠+logo+铃铛+用户chip）+ 240px 可折叠侧栏 + 页面栈。
+
+布局与 web-vue MainLayout.vue 对齐：
+  topbar 56px（traffic-lights / collapse-btn / logo-mark+logo-text / bell / user-chip）
+  body-area = sidebar 240（折叠 64）+ app-content
+"""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtCore import Qt, QSize, QRectF
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-                               QMainWindow, QStackedWidget, QToolButton, QVBoxLayout, QWidget)
+                               QMainWindow, QMenu, QMessageBox, QStackedWidget,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from ..state import auth
 from .aurora import AuroraWidget
@@ -12,6 +18,9 @@ from .nav_items import NAV_ITEMS
 
 # 页面注册表：path -> factory(window) -> Page
 PAGES: dict[str, object] = {}
+
+SIDEBAR_W = 240
+SIDEBAR_COLLAPSED_W = 64
 
 
 def register_page(path: str):
@@ -32,85 +41,103 @@ class Shell(QMainWindow):
         self.setWindowTitle("VIS OKR")
         self.resize(1280, 800)
         self.setMinimumSize(960, 620)
+        self._collapsed = False
 
         root = AuroraWidget()
         self.setCentralWidget(root)
-        outer = QHBoxLayout(root)
+        outer = QVBoxLayout(root)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # ---- 侧边栏 ----
-        self.sidebar = QWidget()
-        self.sidebar.setFixedWidth(220)
-        sb_lay = QVBoxLayout(self.sidebar)
-        sb_lay.setContentsMargins(14, 18, 14, 14)
-        sb_lay.setSpacing(10)
+        # ---- 全宽顶栏（Vue .topbar：56px） ----
+        topbar = QWidget()
+        topbar.setObjectName("TopBar")
+        topbar.setFixedHeight(56)
+        tb = QHBoxLayout(topbar)
+        tb.setContentsMargins(16, 0, 16, 0)
+        tb.setSpacing(10)
 
-        brand = QHBoxLayout()
-        logo = QLabel()
-        logo.setPixmap(self._logo_pixmap(34))
-        name = QLabel("VIS OKR")
-        name.setStyleSheet("font-size:16px;font-weight:800;")
-        brand.addWidget(logo)
-        brand.addSpacing(8)
-        brand.addWidget(name)
-        brand.addStretch()
-        sb_lay.addLayout(brand)
+        # 装饰性 traffic lights（与 Vue 一致）
+        for cls, col in (("close", "#FF5F57"), ("min", "#FEBC2E"), ("max", "#28C840")):
+            dot = QLabel()
+            dot.setFixedSize(12, 12)
+            dot.setStyleSheet("background:%s;border-radius:6px;" % col)
+            tb.addWidget(dot)
+        tb.addSpacing(6)
+
+        self.collapse_btn = QToolButton()
+        self.collapse_btn.setText("\u2261")  # ≡
+        self.collapse_btn.setFixedSize(36, 36)
+        self.collapse_btn.setAutoRaise(True)
+        self.collapse_btn.setCursor(Qt.PointingHandCursor)
+        self.collapse_btn.clicked.connect(self._toggle_sidebar)
+        tb.addWidget(self.collapse_btn)
+
+        self.logo_mark = QLabel("O")
+        self.logo_mark.setFixedSize(28, 28)
+        self.logo_mark.setAlignment(Qt.AlignCenter)
+        tb.addWidget(self.logo_mark)
+        self.logo_text = QLabel("VIS OKR")
+        tb.addWidget(self.logo_text)
+        tb.addStretch()
+
+        self.bell = QToolButton()
+        self.bell.setIcon(self._bell_icon("#606266"))
+        self.bell.setFixedSize(36, 36)
+        self.bell.setAutoRaise(True)
+        self.bell.setCursor(Qt.PointingHandCursor)
+        self.bell.clicked.connect(self._open_notifications)
+        tb.addWidget(self.bell)
+
+        # 用户 chip（Vue .user-chip：头像 + 用户名 + 下拉菜单）
+        self.user_btn = QToolButton()
+        self.user_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.user_btn.setAutoRaise(True)
+        self.user_btn.setCursor(Qt.PointingHandCursor)
+        self.user_btn.setPopupMode(QToolButton.InstantPopup)
+        menu = QMenu(self.user_btn)
+        menu.addAction("我的", lambda: self.navigate("/profile"))
+        menu.addAction("退出登录", self._logout)
+        self.user_btn.setMenu(menu)
+        self.avatar = QLabel()
+        self.avatar.setFixedSize(28, 28)
+        self.avatar.setAlignment(Qt.AlignCenter)
+        self.user_btn.setIcon(self._avatar_icon())
+        self.user_btn.setText(" ")
+        tb.addWidget(self.user_btn)
+
+        outer.addWidget(topbar)
+
+        # ---- body：侧栏 + 内容 ----
+        body = QWidget()
+        body_lay = QHBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        body_lay.setSpacing(0)
+
+        self.sidebar = QWidget()
+        self.sidebar.setObjectName("SidebarPanel")
+        self.sidebar.setFixedWidth(SIDEBAR_W)
+        sb_lay = QVBoxLayout(self.sidebar)
+        sb_lay.setContentsMargins(8, 8, 8, 8)
+        sb_lay.setSpacing(0)
 
         self.nav = QListWidget()
         self.nav.setObjectName("Sidebar")
-        self.nav.setIconSize(QSize(20, 20))
+        self.nav.setIconSize(QSize(18, 18))
+        self.nav.setFrameShape(QListWidget.NoFrame)
         for path, label, glyph in NAV_ITEMS:
-            it = QListWidgetItem(_icon(glyph, "#4B5563"), label)
+            it = QListWidgetItem(_icon(glyph, "#606266"), label)
             it.setData(Qt.UserRole, path)
+            it.setData(Qt.UserRole + 1, glyph)
+            it.setToolTip(label)
             self.nav.addItem(it)
         self.nav.currentRowChanged.connect(self._on_nav)
         sb_lay.addWidget(self.nav, 1)
-
-        # 用户区
-        user_row = QHBoxLayout()
-        self.avatar = QLabel()
-        self.avatar.setFixedSize(30, 30)
-        self.avatar.setAlignment(Qt.AlignCenter)
-        self.avatar.setStyleSheet("border-radius:15px;background:#409EFF;color:white;font-weight:700;")
-        self.user_name = QLabel("")
-        self.user_name.setStyleSheet("font-weight:600;")
-        self.logout_btn = QToolButton()
-        self.logout_btn.setText("退出")
-        self.logout_btn.setAutoRaise(True)
-        self.logout_btn.clicked.connect(self._logout)
-        user_row.addWidget(self.avatar)
-        user_row.addSpacing(6)
-        user_row.addWidget(self.user_name, 1)
-        user_row.addWidget(self.logout_btn)
-        sb_lay.addLayout(user_row)
-
-        outer.addWidget(self.sidebar)
-
-        # ---- 右列：顶栏 + 栈 ----
-        col = QVBoxLayout()
-        col.setContentsMargins(0, 0, 0, 0)
-        col.setSpacing(0)
-
-        topbar = QWidget()
-        topbar.setObjectName("TopBar")
-        topbar.setFixedHeight(52)
-        tb = QHBoxLayout(topbar)
-        tb.setContentsMargins(20, 0, 16, 0)
-        self.page_title = QLabel("摘要")
-        self.page_title.setObjectName("PageTitle")
-        tb.addWidget(self.page_title)
-        tb.addStretch()
-        self.bell = QToolButton()
-        self.bell.setText("\U0001F514")  # bell
-        self.bell.setAutoRaise(True)
-        self.bell.clicked.connect(self._open_notifications)
-        tb.addWidget(self.bell)
-        col.addWidget(topbar)
+        body_lay.addWidget(self.sidebar)
 
         self.stack = QStackedWidget()
-        col.addWidget(self.stack, 1)
-        outer.addLayout(col, 1)
+        body_lay.addWidget(self.stack, 1)
+        outer.addWidget(body, 1)
 
         # ---- 页面（先按导航顺序入栈，保证 row==stack index；隐藏页追加在后） ----
         self.pages: dict[str, QWidget] = {}
@@ -125,41 +152,121 @@ class Shell(QMainWindow):
         self._sync_user()
         self.nav.setCurrentRow(0)
 
+    # ---------- 主题联动 ----------
+    def _tokens(self):
+        return self.property("vis_tokens")
+
+    def on_theme_changed(self):
+        """apply_theme 后调用：用当前 tokens 刷新动态配色部件。"""
+        t = self._tokens()
+        if t is None:
+            return
+        self.logo_mark.setStyleSheet(
+            "background:%s;color:#FFFFFF;border-radius:6px;"
+            "font-family:%s;font-size:16px;font-weight:800;" % (t.primary, "Consolas"))
+        self.logo_text.setStyleSheet(
+            "font-size:15px;font-weight:700;letter-spacing:-0.3px;color:%s;" % t.fg)
+        self.user_btn.setStyleSheet("QToolButton{background:transparent;border:none;color:%s;font-weight:500;}" % t.fg)
+        self.user_btn.setIcon(self._avatar_icon())
+        self.collapse_btn.setIcon(self._menu_icon(t.secondary_fg))
+        self.collapse_btn.setStyleSheet(
+            "QToolButton{background:transparent;border:none;font-size:18px;border-radius:6px;}"
+            "QToolButton:hover{background:%s;}" % t.hairline)
+        self.bell.setIcon(self._bell_icon(t.secondary_fg))
+        self.bell.setStyleSheet(
+            "QToolButton{background:transparent;border:none;font-size:16px;border-radius:6px;}"
+            "QToolButton:hover{background:%s;}" % t.hairline)
+        self._refresh_nav_icons()
+
+    def _refresh_nav_icons(self):
+        t = self._tokens()
+        if t is None:
+            return
+        cur = self.nav.currentRow()
+        for i in range(self.nav.count()):
+            it = self.nav.item(i)
+            glyph = it.data(Qt.UserRole + 1)
+            color = t.sidebar_active_fg if i == cur else t.sidebar_fg
+            it.setIcon(_icon(glyph, color))
+
     @staticmethod
-    def _logo_pixmap(size: int) -> QPixmap:
-        pm = QPixmap(size, size)
+    def _menu_icon(color: str) -> QIcon:
+        pm = QPixmap(18, 18)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        pen = QPen(QColor(color))
+        pen.setWidthF(1.6)
+        pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen)
+        for y in (4, 9, 14):
+            p.drawLine(3, y, 15, y)
+        p.end()
+        return QIcon(pm)
+
+    @staticmethod
+    def _bell_icon(color: str) -> QIcon:
+        pm = QPixmap(18, 18)
         pm.fill(Qt.transparent)
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
-        from PySide6.QtGui import QLinearGradient, QBrush
-        grad = QLinearGradient(0, 0, size, size)
-        grad.setColorAt(0, QColor("#3B82F6"))
-        grad.setColorAt(1, QColor("#7C3AED"))
-        p.setBrush(QBrush(grad))
-        p.setPen(Qt.NoPen)
-        p.drawRoundedRect(0, 0, size, size, size * 0.28, size * 0.28)
-        p.setPen(QColor("white"))
-        f = QFont("Segoe UI Symbol", int(size * 0.5))
-        p.setFont(f)
-        p.drawText(pm.rect(), Qt.AlignCenter, "\u2691")  # ⚑
+        pen = QPen(QColor(color))
+        pen.setWidthF(1.5)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        p.drawArc(QRectF(3.5, 3, 11, 11), 0, 180 * 16)
+        p.drawLine(3, 8, 3, 12)
+        p.drawLine(15, 8, 15, 12)
+        p.drawLine(2, 12, 16, 12)
+        p.drawArc(QRectF(7, 12.5, 4, 4), 180 * 16, 180 * 16)
         p.end()
-        return pm
+        return QIcon(pm)
+
+    def _avatar_icon(self) -> QIcon:
+        t = self._tokens()
+        primary = getattr(t, "primary", "#1E40AF")
+        pm = QPixmap(28, 28)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setBrush(QColor(primary))
+        p.setPen(Qt.NoPen)
+        p.drawEllipse(0, 0, 28, 28)
+        p.setPen(QColor("#FFFFFF"))
+        f = QFont("Segoe UI", 10)
+        f.setBold(True)
+        p.setFont(f)
+        ch = "?"
+        if auth.user:
+            ch = (auth.user.get("username") or "?")[0].upper()
+        p.drawText(pm.rect(), Qt.AlignCenter, ch)
+        p.end()
+        return QIcon(pm)
+
+    # ---------- 交互 ----------
+    def _toggle_sidebar(self):
+        self._collapsed = not self._collapsed
+        self.sidebar.setFixedWidth(SIDEBAR_COLLAPSED_W if self._collapsed else SIDEBAR_W)
+        self.logo_text.setVisible(not self._collapsed)
+        for i in range(self.nav.count()):
+            it = self.nav.item(i)
+            label = NAV_ITEMS[i][1]
+            it.setText("" if self._collapsed else label)
 
     def _sync_user(self):
         if auth.user:
-            u = auth.user
-            self.user_name.setText(u.get("username", ""))
-            self.avatar.setText((u.get("username") or "?")[0].upper())
+            self.user_btn.setText(auth.user.get("username", ""))
+            self.user_btn.setIcon(self._avatar_icon())
 
     def _logout(self):
-        auth.logout()
+        if QMessageBox.question(self, "提示", "确定退出登录吗？") == QMessageBox.Yes:
+            auth.logout()
 
     def _on_nav(self, row: int):
         if row < 0:
             return
-        path, label, _ = NAV_ITEMS[row]
+        path, _label, _ = NAV_ITEMS[row]
         self.stack.setCurrentIndex(row)
-        self.page_title.setText(label)
+        self._refresh_nav_icons()
         page = self.pages.get(path)
         refresh = getattr(page, "refresh", None)
         if callable(refresh):
@@ -177,14 +284,12 @@ class Shell(QMainWindow):
         page = self.pages.get("/objectives/detail")
         if page is not None and hasattr(page, "open_objective"):
             self.stack.setCurrentWidget(page)
-            self.page_title.setText("目标详情")
             page.open_objective(objective_id)
 
     def _open_notifications(self):
         page = self.pages.get("/notifications")
         if page is not None:
             self.stack.setCurrentWidget(page)
-            self.page_title.setText("通知")
             refresh = getattr(page, "refresh", None)
             if callable(refresh):
                 refresh()

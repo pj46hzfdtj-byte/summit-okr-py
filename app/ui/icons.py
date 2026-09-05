@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, Qt, QSize, QRectF
-from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QApplication
 
 
@@ -112,11 +112,52 @@ def _person(p, s):  # 我的
     p.drawArc(rect, 0, 180 * 16)
 
 
+def _aim(p, s):  # KPI：总目标数（Aim）
+    c = s / 2
+    p.drawEllipse(QPointF(c, c), s * 0.32, s * 0.32)
+    p.drawEllipse(QPointF(c, c), s * 0.16, s * 0.16)
+    for ang in (0, 90, 180, 270):
+        import math
+        x1 = c + math.cos(math.radians(ang)) * s * 0.32
+        y1 = c + math.sin(math.radians(ang)) * s * 0.32
+        x2 = c + math.cos(math.radians(ang)) * s * 0.46
+        y2 = c + math.sin(math.radians(ang)) * s * 0.46
+        p.drawLine(int(x1), int(y1), int(x2), int(y2))
+
+
+def _trend(p, s):  # KPI：进行中（TrendCharts）
+    m = s * 0.16
+    p.drawPolyline(QPolygonF([QPointF(s * x, s * y) for x, y in
+                              ((0.14, 0.72), (0.4, 0.46), (0.58, 0.6), (0.86, 0.28))]))
+    p.drawLine(int(s * 0.86), int(s * 0.28), int(s * 0.66), int(s * 0.28))
+    p.drawLine(int(s * 0.86), int(s * 0.28), int(s * 0.86), int(s * 0.48))
+    p.drawLine(int(m), int(s * 0.84), int(s - m), int(s * 0.84))
+
+
+def _check(p, s):  # KPI：已复盘（CircleCheck）
+    c = s / 2
+    p.drawEllipse(QPointF(c, c), s * 0.34, s * 0.34)
+    p.drawPolyline(QPolygonF([QPointF(s * x, s * y) for x, y in
+                              ((0.34, 0.52), (0.46, 0.64), (0.68, 0.4))]))
+
+
+def _warn(p, s):  # KPI：滞后（WarningFilled）
+    p.drawPolyline(QPolygonF([QPointF(s * 0.5, s * 0.14), QPointF(s * 0.9, s * 0.82),
+                              QPointF(s * 0.1, s * 0.82), QPointF(s * 0.5, s * 0.14)]))
+    p.drawLine(int(s * 0.5), int(s * 0.42), int(s * 0.5), int(s * 0.62))
+    p.drawEllipse(QPointF(s * 0.5, s * 0.71), s * 0.025, s * 0.025)
+
+
 _DRAWERS = {
     "bars": _bars, "tree": _tree, "target": _target, "calendar": _calendar,
     "gantt": _gantt, "pen": _pen, "sparkle": _sparkle, "sunrise": _sunrise,
     "trash": _trash, "help": _help, "person": _person,
+    "aim": _aim, "trend": _trend, "check": _check, "warn": _warn,
 }
+
+
+def make_pixmap(key: str, color: str = "#4B5563", size: int = 20) -> QPixmap:
+    return _pix(size, color, _DRAWERS[key])
 
 
 def make_icon(key: str, color: str = "#4B5563", size: int = 40) -> QIcon:

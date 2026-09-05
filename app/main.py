@@ -48,6 +48,9 @@ class App(QApplication):
         self.setStyleSheet(build_qss(tokens))
         if self.shell:
             self.shell.setProperty("vis_tokens", tokens)
+            on_theme = getattr(self.shell, "on_theme_changed", None)
+            if callable(on_theme):
+                on_theme()
             self.shell.update()
 
     def _on_auth_changed(self):

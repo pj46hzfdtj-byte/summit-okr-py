@@ -9,21 +9,15 @@ from PySide6.QtWidgets import (QFrame, QGraphicsDropShadowEffect, QHBoxLayout, Q
 
 
 class Card(QFrame):
-    """玻璃/实色卡片容器（QSS: QFrame[card=true]）。"""
+    """玻璃/实色卡片容器（QSS: QFrame[card=true]；Vue .vis-card：padding 24、无阴影）。"""
 
-    def __init__(self, parent=None, flat: bool = False, padding: int = 16):
+    def __init__(self, parent=None, flat: bool = False, padding: int = 24, kind: str = ""):
         super().__init__(parent)
-        self.setProperty("card", "flat" if flat else "true")
+        self.setProperty("card", kind or ("flat" if flat else "true"))
         lay = QVBoxLayout(self)
         lay.setContentsMargins(padding, padding, padding, padding)
         lay.setSpacing(10)
         self._lay = lay
-        if not flat:
-            eff = QGraphicsDropShadowEffect(self)
-            eff.setBlurRadius(24)
-            eff.setOffset(0, 4)
-            eff.setColor(QColor(0, 0, 0, 28))
-            self.setGraphicsEffect(eff)
 
     def add(self, w: QWidget, stretch: int = 0):
         self._lay.addWidget(w, stretch)

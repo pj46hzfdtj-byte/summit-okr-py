@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QProgressBar, QPushButton,
 
 from ..page_base import Page
 from ..shell import register_page
-from ..widgets import Card, Chip, RingProgress
+from ..theme import _a
+from ..widgets import Card, Chip
 from ...core import api
 from ...core.worker import run_async
 
@@ -95,30 +96,20 @@ class SummaryPage(Page):
         title.setProperty("role", "title")
         self.body_layout.addWidget(title)
 
-        # ---- KPI 行（静态骨架，_apply 中只更新数值） ----
+        # ---- KPI 行（Vue .kpi-grid：4 卡片，icon 方块 + mono 大数字 + 标签） ----
+        self._kpi_defs = [
+            ("totalObjectives", "总目标数", "aim"),
+            ("inProgressObjectives", "进行中", "trend"),
+            ("completedObjectives", "已复盘", "check"),
+            ("laggingCount", "滞后目标", "warn"),
+        ]
         kpi_row = QHBoxLayout()
-        kpi_row.setSpacing(14)
-
-        ring_card = Card()
-        ring_box = QHBoxLayout()
-        ring_box.setSpacing(12)
-        self._ring = RingProgress()
-        ring_right = QVBoxLayout()
-        self._total_val = QLabel("0")
-        self._total_val.setProperty("role", "kpi")
-        total_cap = QLabel("总目标")
-        total_cap.setProperty("role", "muted")
-        ring_right.addWidget(self._total_val)
-        ring_right.addWidget(total_cap)
-        ring_right.addStretch()
-        ring_box.addWidget(self._ring)
-        ring_box.addLayout(ring_right, 1)
-        ring_card.add_layout(ring_box)
-        kpi_row.addWidget(ring_card, 1)
-
-        self._progress_val = self._stat_card(kpi_row, "进行中")
-        self._completed_val = self._stat_card(kpi_row, "已复盘")
-        self._lagging_val = self._stat_card(kpi_row, "滞后")
+        kpi_row.setSpacing(16)
+        self._kpi_vals: dict[str, QLabel] = {}
+        for key, label, glyph in self._kpi_defs:
+            card, val = self._kpi_card(label, glyph)
+            self._kpi_vals[key] = val
+            kpi_row.addWidget(card, 1)
         self.body_layout.addLayout(kpi_row)
 
         # ---- 动态区（动机 / 周期 / 今日任务 / 滞后列表） ----
@@ -129,17 +120,51 @@ class SummaryPage(Page):
         self.body_layout.addWidget(self._dyn)
         self.body_layout.addStretch(1)
 
-    @staticmethod
-    def _stat_card(row_lay: QHBoxLayout, caption: str) -> QLabel:
-        card = Card()
+    def _kpi_card(self, caption: str, glyph: str) -> tuple[Card, QLabel]:
+        """Vue .kpi-card：icon 方块（36px，color 10% 底）+ mono 大数字 + 标签。"""
+        from PySide6.QtGui import QPixmap
+        from ..icons import make_pixmap
+        card = Card(padding=20)
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        icon_lbl = QLabel()
+        icon_lbl.setFixedSize(36, 36)
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        icon_lbl.setProperty("kpiGlyph", glyph)
+        top.addWidget(icon_lbl)
+        top.addStretch()
+        card.add_layout(top)
         val = QLabel("0")
         val.setProperty("role", "kpi")
         cap = QLabel(caption)
         cap.setProperty("role", "muted")
         card.add(val)
         card.add(cap)
-        row_lay.addWidget(card, 1)
-        return val
+        card._kpi_icon = icon_lbl
+        card._kpi_glyph = glyph
+        return card, val
+
+    def _style_kpi_icons(self):
+        """按当前 tokens 给 KPI icon 方块上色（primary/brand2/success/destructive）。"""
+        tokens = self.window().property("vis_tokens") if self.window() else None
+        if tokens is None:
+            return
+        from ..icons import make_pixmap
+        colors = [tokens.primary, tokens.brand2, tokens.success, tokens.destructive]
+        i = 0
+        for key, _label, _glyph in self._kpi_defs:
+            val = self._kpi_vals.get(key)
+            if val is None:
+                continue
+            card = val.parentWidget()
+            icon_lbl = getattr(card, "_kpi_icon", None)
+            glyph = getattr(card, "_kpi_glyph", "aim")
+            if icon_lbl is None:
+                continue
+            c = colors[i % len(colors)]
+            icon_lbl.setPixmap(make_pixmap(glyph, c, 20))
+            icon_lbl.setStyleSheet("background:%s;border-radius:%dpx;" % (_a(c, 0.10), tokens.radius_ctrl))
+            i += 1
 
     # ------------------------------------------------------------------
     def refresh(self):
@@ -156,30 +181,31 @@ class SummaryPage(Page):
         cycle = data.get("activeFocusCycle")
         motive = data.get("randomMotivation")
 
-        self._total_val.setText(str(total))
-        self._progress_val.setText(str(in_prog))
-        self._completed_val.setText(str(completed))
-        self._lagging_val.setText(str(len(lagging)))
+        self._style_kpi_icons()
+        self._kpi_vals["totalObjectives"].setText(str(total))
+        self._kpi_vals["inProgressObjectives"].setText(str(in_prog))
+        self._kpi_vals["completedObjectives"].setText(str(completed))
+        self._kpi_vals["laggingCount"].setText(str(len(lagging)))
         tokens = self.window().property("vis_tokens") if self.window() else None
-        primary = getattr(tokens, "primary", "#409EFF") or "#409EFF"
-        destructive = getattr(tokens, "destructive", "#F56C6C") or "#F56C6C"
-        self._lagging_val.setStyleSheet("color:%s;" % destructive)
-        self._ring.set(completed / total if total else 0.0, primary)
+        primary = getattr(tokens, "primary", "#1E40AF") or "#1E40AF"
 
         _clear_layout(self._dyn_lay)
 
-        # 随机动机
+        # 随机动机（Vue .motivation-banner：橙色渐变 + 大引号）
         if motive:
-            card = Card(flat=True)
+            card = Card(padding=20)
+            card.setProperty("card", "motivation")
             box = QHBoxLayout()
-            box.setSpacing(10)
+            box.setSpacing(14)
+            accent = getattr(tokens, "accent_brand", "#D97706") or "#D97706"
             quote = QLabel("\u201c")  # “
             qf = QFont("Georgia", 26)
             qf.setBold(True)
             quote.setFont(qf)
-            quote.setProperty("role", "muted")
+            quote.setStyleSheet("color:%s;" % accent)
             text = QLabel(str(motive))
             text.setWordWrap(True)
+            text.setProperty("role", "body-strong")
             text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             box.addWidget(quote, 0, Qt.AlignTop)
             box.addWidget(text, 1)
