@@ -40,7 +40,7 @@ def _pct(v: Any) -> int:
 
 def _toast_err(msg: str):
     from PySide6.QtWidgets import QApplication
-    toast = getattr(QApplication.instance(), "vis_toast", None)
+    toast = getattr(QApplication.instance(), "summit_toast", None)
     if toast:
         toast.show_msg(str(msg), "error")
     else:
@@ -146,7 +146,7 @@ class SummaryPage(Page):
 
     def _style_kpi_icons(self):
         """按当前 tokens 给 KPI icon 方块上色（primary/brand2/success/destructive）。"""
-        tokens = self.window().property("vis_tokens") if self.window() else None
+        tokens = self.window().property("summit_tokens") if self.window() else None
         if tokens is None:
             return
         from ..icons import make_pixmap
@@ -186,7 +186,7 @@ class SummaryPage(Page):
         self._kpi_vals["inProgressObjectives"].setText(str(in_prog))
         self._kpi_vals["completedObjectives"].setText(str(completed))
         self._kpi_vals["laggingCount"].setText(str(len(lagging)))
-        tokens = self.window().property("vis_tokens") if self.window() else None
+        tokens = self.window().property("summit_tokens") if self.window() else None
         primary = getattr(tokens, "primary", "#1E40AF") or "#1E40AF"
 
         _clear_layout(self._dyn_lay)
@@ -261,7 +261,7 @@ class SummaryPage(Page):
         card.add_layout(top)
 
         score = int(cycle.get("cycleScore") or 0)
-        tokens = self.window().property("vis_tokens") if self.window() else None
+        tokens = self.window().property("summit_tokens") if self.window() else None
         primary = getattr(tokens, "primary", "#409EFF") or "#409EFF"
         card.add(_progress_bar(score, primary))
 

@@ -68,7 +68,7 @@ def run_async(fn: Callable[[], Any],
 def _default_error(msg: str):
     from PySide6.QtWidgets import QApplication
     app = QApplication.instance()
-    toast = getattr(app, "vis_toast", None) if app else None
+    toast = getattr(app, "summit_toast", None) if app else None
     if toast:
         toast.error(msg)
     else:

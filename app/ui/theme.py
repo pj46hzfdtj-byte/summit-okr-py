@@ -37,8 +37,8 @@ class Tokens:
     radius: int = 8               # 卡片圆角（Vue --radius-md）
     radius_ctrl: int = 6          # 控件圆角（Vue --radius-sm）
     primary: str = "#1E40AF"
-    brand2: str = "#3B82F6"       # Vue --vis-secondary
-    accent_brand: str = "#D97706" # Vue --vis-accent（动机横幅橙）
+    brand2: str = "#3B82F6"       # Vue --summit-secondary
+    accent_brand: str = "#D97706" # Vue --summit-accent（动机横幅橙）
     primary_fg: str = "#FFFFFF"
     primary_soft: str = "#E9EEF6"
     bg: str = "#F8FAFC"
@@ -213,7 +213,7 @@ class AuroraMixin:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         rect = QRectF(self.rect())
-        t = self.window().property("vis_tokens") if self.window() else None
+        t = self.window().property("summit_tokens") if self.window() else None
         if t is not None and getattr(t, "aurora", False):
             paint_aurora(p, rect, t.mode == "dark")
         elif t is not None:
@@ -240,7 +240,7 @@ QLabel[role="muted"] {{ color: {t.muted_fg}; font-size: 13px; }}
 QLabel[role="kpi"] {{ font-family: {MONO_FAMILY}; font-size: 28px; font-weight: 700; color: {t.fg}; }}
 QLabel[role="body-strong"] {{ font-size: 15px; font-weight: 500; }}
 
-/* 卡片（Vue .vis-card：padding 24 / border-lighter / radius-md，无阴影） */
+/* 卡片（Vue .summit-card：padding 24 / border-lighter / radius-md，无阴影） */
 QFrame[card="true"] {{
   background: {card_bg};
   border: 1px solid {t.glass_border if t.theme == 'macos' else t.border};

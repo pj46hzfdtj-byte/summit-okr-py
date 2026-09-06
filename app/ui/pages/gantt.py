@@ -50,7 +50,7 @@ def _md(dt: Optional[datetime.datetime]) -> str:
 
 def _toast_err(msg: str):
     from PySide6.QtWidgets import QApplication
-    toast = getattr(QApplication.instance(), "vis_toast", None)
+    toast = getattr(QApplication.instance(), "summit_toast", None)
     if toast:
         toast.show_msg(str(msg), "error")
     else:
@@ -118,7 +118,7 @@ class GanttChart(QWidget):
         if lay is None:
             p.end()
             return
-        tokens = self.window().property("vis_tokens") if self.window() else None
+        tokens = self.window().property("summit_tokens") if self.window() else None
         muted_fg = QColor(getattr(tokens, "muted_fg", "#6B7280")) if tokens else QColor("#6B7280")
         border = QColor(getattr(tokens, "border", "#E4E7ED")) if tokens else QColor("#E4E7ED")
         destructive = QColor(getattr(tokens, "destructive", "#F56C6C")) if tokens else QColor("#F56C6C")

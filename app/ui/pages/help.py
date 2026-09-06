@@ -12,7 +12,7 @@ from ...core import api
 from ...core.worker import run_async
 
 ABOUT_INTRO = (
-    "本项目是一款基于 OKR（目标与关键结果）方法论的个人目标管理应用，完整复刻了 VIS OKR 的核心功能。"
+    "本项目是一款基于 OKR（目标与关键结果）方法论的个人目标管理应用，完整复刻了 Summit OKR 的核心功能。"
     "通过多层级目标体系、关键结果量化、专注周期聚焦、日历任务落地、定期复盘评分五大模块，"
     "帮助你将远大愿景拆解为可执行的每日行动。内置 AI 助手可智能规划目标、拆解任务、建议评分与动机，"
     "让目标管理更高效。"
@@ -59,7 +59,7 @@ FEEDBACK_TYPES = [("bug", "问题反馈"), ("suggestion", "功能建议"), ("oth
 
 def _toast(msg: str, kind: str = "info"):
     from PySide6.QtWidgets import QApplication
-    t = getattr(QApplication.instance(), "vis_toast", None)
+    t = getattr(QApplication.instance(), "summit_toast", None)
     if t:
         t.show_msg(str(msg), kind)
 

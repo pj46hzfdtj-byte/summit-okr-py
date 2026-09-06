@@ -1,4 +1,4 @@
-"""VIS OKR 桌面端（PySide6）入口。"""
+"""Summit OKR 桌面端（PySide6）入口。"""
 from __future__ import annotations
 
 import sys
@@ -20,14 +20,14 @@ class App(QApplication):
         self.setApplicationName(SETTINGS_APP)
         self.shell = None
         self.toast = None
-        self.vis_toast = None
+        self.summit_toast = None
         # QApplication 就绪后再导入：state / pages 在模块级使用 QSettings 与注册表
         from .state import app as app_store
         from .ui import pages as _pages  # noqa: F401  触发页面注册
         self.app_store = app_store
         self._server = QLocalServer(self)
         self._server.newConnection.connect(self._raise_existing)
-        self._server.listen("visokr-py-desktop")
+        self._server.listen("summitokr-py-desktop")
 
     # ---------- 主题 ----------
     @staticmethod
@@ -47,7 +47,7 @@ class App(QApplication):
         tokens = build_tokens(app_store.theme, app_store.mode, dark)
         self.setStyleSheet(build_qss(tokens))
         if self.shell:
-            self.shell.setProperty("vis_tokens", tokens)
+            self.shell.setProperty("summit_tokens", tokens)
             on_theme = getattr(self.shell, "on_theme_changed", None)
             if callable(on_theme):
                 on_theme()
@@ -96,7 +96,7 @@ class App(QApplication):
         self.shell = Shell()
         self.apply_theme()
         self.toast = Toast(self.shell)
-        self.vis_toast = self.toast
+        self.summit_toast = self.toast
         auth.changed.connect(self._on_auth_changed)
         self.shell.show()
 

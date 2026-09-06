@@ -28,7 +28,7 @@ LOCALES = [("zh-CN", "简体中文"), ("zh-TW", "繁體中文"),
 
 def _toast(msg: str, kind: str = "info"):
     from PySide6.QtWidgets import QApplication
-    t = getattr(QApplication.instance(), "vis_toast", None)
+    t = getattr(QApplication.instance(), "summit_toast", None)
     if t:
         t.show_msg(str(msg), kind)
 
@@ -333,7 +333,7 @@ class ProfilePage(Page):
         from PySide6.QtWidgets import QFileDialog
         today = datetime.date.today().strftime("%Y-%m-%d")
         path, _ = QFileDialog.getSaveFileName(
-            self, "导出数据", "vis-okr-export-%s.json" % today, "JSON 文件 (*.json)")
+            self, "导出数据", "summit-okr-export-%s.json" % today, "JSON 文件 (*.json)")
         if not path:
             return
         try:

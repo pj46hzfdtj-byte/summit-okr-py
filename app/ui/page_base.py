@@ -36,4 +36,4 @@ class Page(QScrollArea):
     def toast(self):
         app = self.window().window() if self.window() else None
         from PySide6.QtWidgets import QApplication
-        return getattr(QApplication.instance(), "vis_toast", None)
+        return getattr(QApplication.instance(), "summit_toast", None)

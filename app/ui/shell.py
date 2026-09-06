@@ -38,7 +38,7 @@ def _icon(key: str, color: str) -> QIcon:
 class Shell(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("VIS OKR")
+        self.setWindowTitle("Summit OKR")
         self.resize(1280, 800)
         self.setMinimumSize(960, 620)
         self._collapsed = False
@@ -77,7 +77,7 @@ class Shell(QMainWindow):
         self.logo_mark.setFixedSize(28, 28)
         self.logo_mark.setAlignment(Qt.AlignCenter)
         tb.addWidget(self.logo_mark)
-        self.logo_text = QLabel("VIS OKR")
+        self.logo_text = QLabel("Summit OKR")
         tb.addWidget(self.logo_text)
         tb.addStretch()
 
@@ -154,7 +154,7 @@ class Shell(QMainWindow):
 
     # ---------- 主题联动 ----------
     def _tokens(self):
-        return self.property("vis_tokens")
+        return self.property("summit_tokens")
 
     def on_theme_changed(self):
         """apply_theme 后调用：用当前 tokens 刷新动态配色部件。"""

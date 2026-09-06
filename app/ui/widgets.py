@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QFrame, QGraphicsDropShadowEffect, QHBoxLayout, Q
 
 
 class Card(QFrame):
-    """玻璃/实色卡片容器（QSS: QFrame[card=true]；Vue .vis-card：padding 24、无阴影）。"""
+    """玻璃/实色卡片容器（QSS: QFrame[card=true]；Vue .summit-card：padding 24、无阴影）。"""
 
     def __init__(self, parent=None, flat: bool = False, padding: int = 24, kind: str = ""):
         super().__init__(parent)

@@ -15,7 +15,7 @@ from .widgets import Card
 class AuthDialog(QDialog):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("VIS OKR - 登录")
+        self.setWindowTitle("Summit OKR - 登录")
         self.setModal(True)
         # 尺寸不超过屏幕可用区域（小屏/高 DPI 下避免底部按钮超出屏幕），
         # 同时防止窗口被拖小导致登录按钮被裁掉
@@ -33,7 +33,7 @@ class AuthDialog(QDialog):
         theme = getattr(getattr(app_inst, "app_store", None), "theme", "light")
         mode = getattr(getattr(app_inst, "app_store", None), "mode", "system")
         from .theme import build_tokens
-        self.setProperty("vis_tokens", build_tokens(theme, mode, dark))
+        self.setProperty("summit_tokens", build_tokens(theme, mode, dark))
 
         root = AuroraWidget()
         lay = QVBoxLayout(self)
@@ -44,7 +44,7 @@ class AuthDialog(QDialog):
         col.setAlignment(Qt.AlignCenter)
         col.setContentsMargins(36, 36, 36, 36)
 
-        brand = QLabel("\u2691  VIS OKR")
+        brand = QLabel("\u2691  Summit OKR")
         brand.setAlignment(Qt.AlignCenter)
         brand.setStyleSheet("font-size:24px;font-weight:800;")
         col.addWidget(brand)
@@ -94,7 +94,7 @@ class AuthDialog(QDialog):
         toggle_row.addWidget(self.toggle_btn)
         card.add_layout(toggle_row)
 
-        tip = QLabel("演示账号 demo@visokr.com / password123")
+        tip = QLabel("演示账号 demo@summitokr.com / password123")
         tip.setAlignment(Qt.AlignCenter)
         tip.setProperty("role", "muted")
         card.add(tip)

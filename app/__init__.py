@@ -1,1 +1,1 @@
-"""VIS OKR — PySide6 desktop client."""
+"""Summit OKR — PySide6 desktop client."""

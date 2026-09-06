@@ -28,7 +28,7 @@ TYPE_LABEL = {
 
 def _toast(msg: str, kind: str = "info"):
     from PySide6.QtWidgets import QApplication
-    t = getattr(QApplication.instance(), "vis_toast", None)
+    t = getattr(QApplication.instance(), "summit_toast", None)
     if t:
         t.show_msg(str(msg), kind)
 

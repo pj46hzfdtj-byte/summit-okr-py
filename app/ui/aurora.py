@@ -15,7 +15,7 @@ class AuroraWidget(QWidget):
         self.setAttribute(Qt.WA_OpaquePaintEvent, True)
 
     def paintEvent(self, _):
-        t = self.window().property("vis_tokens") if self.window() else None
+        t = self.window().property("summit_tokens") if self.window() else None
         p = QPainter(self)
         rect = QRectF(self.rect())
         if t is not None and t.aurora:
