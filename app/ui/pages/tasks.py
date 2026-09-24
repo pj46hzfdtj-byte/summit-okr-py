@@ -1,19 +1,34 @@
-"""任务日历页：任务列表 + 完成/过期/重复 + 筛选 + 新建 + 批量删除 + 清理过期。"""
+"""任务日历页：任务列表 + 完成/过期/重复 + 筛选 + 新建 + 批量删除 + 清理过期。
+
+VisOKR 风格：顶部横向周日期条、右下浮动「＋」FAB、完成庆祝浮层、已完成行绿色高亮。
+"""
 from __future__ import annotations
 
 import datetime
+import random
 from typing import Any, Optional
 
-from PySide6.QtCore import QDateTime, Qt, QDate, QTime
+from PySide6.QtCore import QDateTime, Qt, QDate, QTimer, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDateTimeEdit, QDialog,
-                               QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
-                               QVBoxLayout, QWidget)
+                               QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
+                               QPushButton, QSizePolicy, QVBoxLayout, QWidget)
 
 from ..page_base import Page
 from ..shell import register_page
+from ..theme import _a
 from ..widgets import Card, Chip, EmptyState
 from ...core import api
 from ...core.worker import run_async
+
+WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"]
+
+CELEBRATE_MESSAGES = [
+    "又近了一步，继续加油！",
+    "坚持就是胜利！",
+    "今天的努力看得见！",
+    "离目标更近了！",
+    "太棒了，保持节奏！",
+]
 
 REPEAT_LABEL = {
     "none": "不重复",
@@ -167,6 +182,266 @@ class _TaskDialog(QDialog):
         return dto
 
 
+# ================= VisOKR 风格部件 =================
+
+class _WeekDay(QFrame):
+    """周条中的单个日期胶囊：星期 + 日号 + 完成点 + n/m 计数。"""
+
+    clicked = Signal(QDate)
+
+    def __init__(self, date: QDate, weekday: str, parent=None):
+        super().__init__(parent)
+        self.date = date
+        self.setObjectName("weekDay")
+        self.setCursor(Qt.PointingHandCursor)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(4, 7, 4, 5)
+        v.setSpacing(1)
+        self.wd_lab = QLabel(weekday)
+        self.wd_lab.setAlignment(Qt.AlignCenter)
+        self.num_lab = QLabel(str(date.day()))
+        self.num_lab.setAlignment(Qt.AlignCenter)
+        nf = self.num_lab.font()
+        nf.setPointSize(12)
+        nf.setBold(True)
+        self.num_lab.setFont(nf)
+        self.dot = QLabel()
+        self.dot.setFixedSize(6, 6)
+        self.dot.setAlignment(Qt.AlignCenter)
+        dot_row = QHBoxLayout()
+        dot_row.setContentsMargins(0, 0, 0, 0)
+        dot_row.addStretch()
+        dot_row.addWidget(self.dot)
+        dot_row.addStretch()
+        self.count_lab = QLabel("")
+        self.count_lab.setAlignment(Qt.AlignCenter)
+        cf = self.count_lab.font()
+        cf.setPointSize(7)
+        self.count_lab.setFont(cf)
+        v.addWidget(self.wd_lab)
+        v.addWidget(self.num_lab)
+        v.addLayout(dot_row)
+        v.addWidget(self.count_lab)
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton and self.rect().contains(e.pos()):
+            self.clicked.emit(self.date)
+        super().mouseReleaseEvent(e)
+
+    def apply(self, count: int, completed: int, is_today: bool, is_selected: bool, tokens):
+        primary = getattr(tokens, "primary", "#1E40AF") if tokens else "#1E40AF"
+        success = getattr(tokens, "success", "#059669") if tokens else "#059669"
+        muted_fg = getattr(tokens, "muted_fg", "#909399") if tokens else "#909399"
+        fg = getattr(tokens, "fg", "#303133") if tokens else "#303133"
+        soft = getattr(tokens, "primary_soft", "#E9EEF6") if tokens else "#E9EEF6"
+        all_done = count > 0 and completed == count
+        bg = "transparent"
+        if all_done:
+            bg = _a(success, 0.10)
+        if is_today:
+            bg = soft
+        border = "1px solid transparent"
+        if is_today:
+            border = "1px solid %s" % _a(primary, 0.45)
+        if is_selected:
+            border = "1px solid %s" % primary
+        self.setStyleSheet(
+            "QFrame#weekDay{background:%s;border:%s;border-radius:10px;}" % (bg, border))
+        num_color = success if all_done else (primary if is_today else fg)
+        self.num_lab.setStyleSheet("color:%s;background:transparent;" % num_color)
+        self.wd_lab.setStyleSheet("color:%s;font-size:11px;background:transparent;" % muted_fg)
+        if count > 0:
+            self.dot.setStyleSheet("background:%s;border-radius:3px;" % (success if all_done else primary))
+            self.count_lab.setText("%d/%d" % (completed, count))
+            self.count_lab.setStyleSheet("color:%s;font-size:10px;background:transparent;" % muted_fg)
+        else:
+            self.dot.setStyleSheet("background:transparent;")
+            self.count_lab.setText("")
+
+
+class _WeekStrip(Card):
+    """横向周日期条（Vue .week-strip-card）：上一周/下一周/回到今天 + 7 日胶囊。"""
+
+    day_clicked = Signal(QDate)
+
+    def __init__(self, parent=None):
+        super().__init__(parent, padding=12)
+        self._anchor = _monday_of(QDate.currentDate())  # 本周一
+        self._last_tasks: list = []
+        self._last_selected: Optional[QDate] = None
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(6)
+        self.btn_prev = QPushButton("\u2039")  # ‹
+        self.btn_next = QPushButton("\u203a")  # ›
+        for b in (self.btn_prev, self.btn_next):
+            b.setFixedWidth(28)
+            b.setProperty("preset", "ghost")
+            b.setCursor(Qt.PointingHandCursor)
+        self.lbl = QLabel("")
+        lf = self.lbl.font()
+        lf.setBold(True)
+        self.lbl.setFont(lf)
+        self.lbl.setAlignment(Qt.AlignCenter)
+        btn_today = QPushButton("回到今天")
+        btn_today.setProperty("preset", "ghost")
+        btn_today.setCursor(Qt.PointingHandCursor)
+        head.addWidget(self.btn_prev)
+        head.addStretch()
+        head.addWidget(self.lbl, 2)
+        head.addStretch()
+        head.addWidget(self.btn_next)
+        head.addWidget(btn_today)
+        self.add_layout(head)
+
+        grid = QHBoxLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(6)
+        self._days: list[_WeekDay] = []
+        for i in range(7):
+            d = self._anchor.addDays(i)
+            day = _WeekDay(d, WEEKDAY_LABELS[i], self)
+            day.clicked.connect(self.day_clicked.emit)
+            self._days.append(day)
+            grid.addWidget(day, 1)
+        self.add_layout(grid)
+
+        self.btn_prev.clicked.connect(lambda: self._shift(-7))
+        self.btn_next.clicked.connect(lambda: self._shift(7))
+        btn_today.clicked.connect(self.go_today)
+
+    def _shift(self, days: int):
+        self._anchor = self._anchor.addDays(days)
+        self._rebuild()
+
+    def go_today(self):
+        self._anchor = _monday_of(QDate.currentDate())
+        self.day_clicked.emit(QDate.currentDate())
+
+    def ensure_contains(self, date: QDate):
+        """选中日不在当前周时，把周条移到该日所在周。"""
+        start = self._anchor
+        end = start.addDays(6)
+        if date < start or date > end:
+            self._anchor = _monday_of(date)
+            self.refresh(self._last_tasks, self._last_selected)
+
+    def _rebuild(self):
+        for i, day in enumerate(self._days):
+            d = self._anchor.addDays(i)
+            day.date = d
+            day.wd_lab.setText(WEEKDAY_LABELS[i])
+            day.num_lab.setText(str(d.day()))
+        s, e = self._anchor, self._anchor.addDays(6)
+        self.lbl.setText("%d月%d日 - %d月%d日" % (s.month(), s.day(), e.month(), e.day()))
+
+    def refresh(self, tasks: list, selected: Optional[QDate]):
+        self._last_tasks = tasks or []
+        self._last_selected = selected
+        self._rebuild()
+        today = QDate.currentDate()
+        tokens = None
+        w = self.window()
+        if w is not None:
+            tokens = w.property("summit_tokens")
+        for i, day in enumerate(self._days):
+            d = self._anchor.addDays(i)
+            count = completed = 0
+            for t in self._last_tasks:
+                if not isinstance(t, dict):
+                    continue
+                sched = _parse_dt(t.get("scheduledAt"))
+                if sched and QDate(sched.year, sched.month, sched.day) == d:
+                    count += 1
+                    if t.get("status") == "completed":
+                        completed += 1
+            day.apply(count, completed, d == today,
+                      selected is not None and d == selected, tokens)
+
+
+def _monday_of(d: QDate) -> QDate:
+    return d.addDays(1 - d.dayOfWeek())  # Qt: 1=周一
+
+
+class _Fab(QPushButton):
+    """右下浮动「＋」新建按钮（Vue .task-fab：52px 圆形主色底）。"""
+
+    def __init__(self, parent, on_click):
+        super().__init__("\uff0b", parent)  # ＋
+        self.setFixedSize(52, 52)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("新建任务")
+        f = self.font()
+        f.setPointSize(18)
+        f.setBold(True)
+        self.setFont(f)
+        self.clicked.connect(on_click)
+
+    def restyle(self, tokens):
+        primary = getattr(tokens, "primary", "#1E40AF") if tokens else "#1E40AF"
+        fg = getattr(tokens, "primary_fg", "#FFFFFF") if tokens else "#FFFFFF"
+        self.setStyleSheet(
+            "QPushButton{background:%s;color:%s;border:none;border-radius:26px;"
+            "font-size:24px;font-weight:700;}"
+            "QPushButton:hover{background:%s;}" % (primary, fg, _a(primary, 0.88)))
+
+
+class _CelebrateToast(QWidget):
+    """完成任务庆祝浮层（Vue .celebrate-toast：🎉 + 鼓励语 + 当日进度），3 秒自动消失。"""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WA_NoSystemBackground)
+        self.hide()
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self.hide)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(16, 12, 20, 12)
+        h.setSpacing(10)
+        self.emoji = QLabel("\U0001f389")  # 🎉
+        ef = self.emoji.font()
+        ef.setPointSize(20)
+        self.emoji.setFont(ef)
+        h.addWidget(self.emoji)
+        v = QVBoxLayout()
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(2)
+        self.title = QLabel("")
+        tf = self.title.font()
+        tf.setPointSize(11)
+        tf.setBold(True)
+        self.title.setFont(tf)
+        self.sub = QLabel("")
+        self.sub.setProperty("role", "muted")
+        v.addWidget(self.title)
+        v.addWidget(self.sub)
+        h.addLayout(v)
+
+    def show_msg(self, title: str, sub: str):
+        w = self.window()
+        tokens = w.property("summit_tokens") if w is not None else None
+        card = getattr(tokens, "card", "#FFFFFF") if tokens else "#FFFFFF"
+        success = getattr(tokens, "success", "#059669") if tokens else "#059669"
+        border = getattr(tokens, "border", "#EBEEF5") if tokens else "#EBEEF5"
+        self.title.setText(title)
+        self.title.setStyleSheet("color:%s;background:transparent;" % success)
+        self.sub.setText(sub)
+        self.setStyleSheet(
+            "_CelebrateToast{background:%s;border:1px solid %s;border-radius:14px;}"
+            % (card, _a(success, 0.5) if not border.startswith("#A") else border))
+        self.title.setText(title)  # 重设样式后恢复文本样式
+        self.sub.setText(sub)
+        self.adjustSize()
+        host = self.parentWidget()
+        if host:
+            self.move(max(8, (host.width() - self.width()) // 2), 64)
+        self.show()
+        self.raise_()
+        self._timer.start(3000)
+
+
 @register_page("/tasks")
 class TasksPage(Page):
     path = "/tasks"
@@ -178,6 +453,7 @@ class TasksPage(Page):
         self._obj_map: dict = {}
         self._select_mode = False
         self._selected: set = set()
+        self._celebrate_pending = False
 
         header = QWidget()
         hl = QHBoxLayout(header)
@@ -225,16 +501,60 @@ class TasksPage(Page):
         hl.addWidget(btn_new)
         self.body_layout.addWidget(header)
 
+        # ---- 横向周日期条（VisOKR） ----
+        self.week_strip = _WeekStrip()
+        self.week_strip.day_clicked.connect(self._select_day)
+        self.body_layout.addWidget(self.week_strip)
+
         card = Card()
         self.list_lay = QVBoxLayout()
         self.list_lay.setContentsMargins(0, 0, 0, 0)
         self.list_lay.setSpacing(2)
         card.add_layout(self.list_lay, 1)
-        self.empty = EmptyState("暂无任务，点击右上角「新建任务」开始安排")
+        self.empty = EmptyState("暂无任务，点击右下角「＋」开始安排")
         self.empty.hide()
         card.add(self.empty)
         self.body_layout.addWidget(card, 1)
+
+        # ---- 浮动「＋」FAB 与庆祝浮层（挂在 viewport 上，随页面滚动固定） ----
+        vp = self.viewport()
+        self.fab = _Fab(vp, self._create)
+        self.celebrate = _CelebrateToast(vp)
         self._ready = True
+
+    # ---------------- 浮动部件定位 ----------------
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if not getattr(self, "_ready", False):
+            return
+        vp = self.viewport()
+        self.fab.move(vp.width() - self.fab.width() - 28, vp.height() - self.fab.height() - 28)
+        self.fab.raise_()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if getattr(self, "_ready", False):
+            tokens = self.window().property("summit_tokens") if self.window() else None
+            self.fab.restyle(tokens)
+            self._layout_celebrate()
+
+    def _layout_celebrate(self):
+        vp = self.viewport()
+        self.celebrate.move(max(8, (vp.width() - self.celebrate.width()) // 2), 64)
+        self.celebrate.raise_()
+
+    # ---------------- 周条交互 ----------------
+    def _select_day(self, d: QDate):
+        if not d.isValid():
+            return
+        self.date_check.blockSignals(True)
+        self.date_check.setChecked(True)
+        self.date_check.blockSignals(False)
+        self.date_edit.setEnabled(True)
+        self.date_edit.blockSignals(True)
+        self.date_edit.setDate(d)
+        self.date_edit.blockSignals(False)
+        self._render()
 
     def _on_date_check(self, on: bool):
         self.date_edit.setEnabled(on)
@@ -252,6 +572,30 @@ class TasksPage(Page):
         self._obj_map = {o.get("id"): o for o in self._objectives if isinstance(o, dict)}
         self._selected &= {t.get("id") for t in self._tasks if isinstance(t, dict)}
         self._render()
+        if self._celebrate_pending:
+            self._celebrate_pending = False
+            done, total = self._today_progress()
+            self.celebrate.show_msg(random.choice(CELEBRATE_MESSAGES),
+                                    "今日进度 %d/%d" % (done, total))
+
+    def _today_progress(self) -> tuple:
+        today = datetime.date.today()
+        done = total = 0
+        for t in self._tasks:
+            if not isinstance(t, dict):
+                continue
+            sched = _parse_dt(t.get("scheduledAt"))
+            if sched and sched.date() == today:
+                total += 1
+                if t.get("status") == "completed":
+                    done += 1
+        return done, total
+
+    def _refresh_week_strip(self):
+        selected = self.date_edit.date() if self.date_check.isChecked() else None
+        if selected is not None:
+            self.week_strip.ensure_contains(selected)
+        self.week_strip.refresh(self._tasks, selected)
 
     def _filtered(self) -> list:
         status = self.status_combo.currentData()
@@ -278,12 +622,14 @@ class TasksPage(Page):
         if not tasks:
             self.empty.show()
             self._update_batch_btn()
+            self._refresh_week_strip()
             return
         self.empty.hide()
         today = datetime.date.today()
         for t in tasks:
             self.list_lay.addWidget(self._row(t, today))
         self._update_batch_btn()
+        self._refresh_week_strip()
 
     def _row(self, t: dict, today) -> QWidget:
         tid = t.get("id")
@@ -292,6 +638,11 @@ class TasksPage(Page):
         overdue = (not completed) and sched is not None and sched.date() < today
 
         row = QWidget()
+        row.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)  # 防止行被拉伸铺满卡片
+        if completed:  # Vue .task-item.is-completed：绿色高亮（选择器限定到行自身，避免子控件继承）
+            row.setObjectName("taskRow")
+            row.setStyleSheet("QWidget#taskRow{background:%s;border-radius:8px;}"
+                              % _a("#059669", 0.10))
         h = QHBoxLayout(row)
         h.setContentsMargins(8, 6, 8, 6)
         h.setSpacing(8)
@@ -374,6 +725,8 @@ class TasksPage(Page):
     def _toggle_complete(self, tid, on: bool):
         if not tid:
             return
+        if on:
+            self._celebrate_pending = True
         run_async(lambda: api.task_complete(tid, bool(on)),
                   on_ok=lambda _r: (self.refresh(),))
 

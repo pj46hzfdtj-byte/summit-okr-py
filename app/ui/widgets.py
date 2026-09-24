@@ -63,19 +63,21 @@ class RingProgress(QWidget):
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        r = QRectF(8, 8, self.width() - 16, self.height() - 16)
+        stroke = max(4, int(self.width() * 0.083))  # 84px 时约 7px
+        r = QRectF(stroke / 2.0 + 1, stroke / 2.0 + 1,
+                   self.width() - stroke - 2, self.height() - stroke - 2)
         pen = QPen(QColor(self._color).lighter(160) if QColor(self._color).lightness() > 128
                    else QColor(self._color).darker(140))
-        pen.setWidth(7)
+        pen.setWidth(stroke)
         p.setPen(pen)
         p.drawArc(r, 0, 360 * 16)
         pen2 = QPen(QColor(self._color))
-        pen2.setWidth(7)
+        pen2.setWidth(stroke)
         pen2.setCapStyle(Qt.RoundCap)
         p.setPen(pen2)
         p.drawArc(r, 90 * 16, -int(self._value * 360) * 16)
         f = QFont()
-        f.setPointSize(13)
+        f.setPointSize(max(8, int(self.width() * 0.155)))  # 84px 时约 13pt
         f.setBold(True)
         p.setFont(f)
         p.setPen(QColor(self._color))

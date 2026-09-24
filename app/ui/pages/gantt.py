@@ -284,6 +284,9 @@ class GanttPage(Page):
     def __init__(self, shell):
         super().__init__(shell)
         self._scope = "all"
+        self._status = "all"
+        self._all_items: list = []
+        self._today = None
 
         head = QHBoxLayout()
         title = QLabel("甘特图")
@@ -300,6 +303,22 @@ class GanttPage(Page):
         head.addWidget(self._btn_all)
         head.addWidget(self._btn_cycle)
         self.body_layout.addLayout(head)
+
+        # ---- VisOKR 风格：状态过滤胶囊 Tab（全部/进行中/滞后/已完成 + 计数） ----
+        tabs = QHBoxLayout()
+        tabs.setContentsMargins(0, 0, 0, 0)
+        tabs.setSpacing(8)
+        self._tab_defs = [("all", "全部"), ("active", "进行中"), ("lagging", "滞后"), ("completed", "已完成")]
+        self._tab_btns: dict[str, QPushButton] = {}
+        for key, label in self._tab_defs:
+            b = QPushButton(label)
+            b.setObjectName("statusTab")
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _c=False, k=key: self._set_status(k))
+            self._tab_btns[key] = b
+            tabs.addWidget(b)
+        tabs.addStretch()
+        self.body_layout.addLayout(tabs)
 
         self._card = Card(padding=20)
         self._chart = GanttChart()
@@ -350,6 +369,46 @@ class GanttPage(Page):
         self._sync_scope_buttons()
         self.refresh()
 
+    def _set_status(self, status: str):
+        if status == self._status:
+            return
+        self._status = status
+        self._render_chart()
+
+    # ---- 状态过滤（Vue filteredItems / statusCounts） ----
+    @staticmethod
+    def _match(item: dict, key: str) -> bool:
+        st = item.get("status")
+        if key == "active":
+            return st in ("in_progress", "pending_review")
+        if key == "lagging":
+            return bool(item.get("isLagging"))
+        if key == "completed":
+            return st == "completed"
+        return True
+
+    def _sync_status_tabs(self):
+        tokens = self.window().property("summit_tokens") if self.window() else None
+        primary = getattr(tokens, "primary", "#1E40AF") if tokens else "#1E40AF"
+        card = getattr(tokens, "card", "#FFFFFF") if tokens else "#FFFFFF"
+        border = getattr(tokens, "border", "#EBEEF5") if tokens else "#EBEEF5"
+        fg = getattr(tokens, "fg", "#303133") if tokens else "#303133"
+        counts = {k: sum(1 for i in self._all_items if isinstance(i, dict) and self._match(i, k))
+                  for k, _l in self._tab_defs}
+        for key, label in self._tab_defs:
+            b = self._tab_btns[key]
+            b.setText("%s  %d" % (label, counts.get(key, 0)))
+            if key == self._status:
+                b.setStyleSheet(
+                    "QPushButton#statusTab{background:%s;color:#FFFFFF;border:1px solid %s;"
+                    "border-radius:999px;padding:6px 16px;font-weight:600;}" % (primary, primary))
+            else:
+                b.setStyleSheet(
+                    "QPushButton#statusTab{background:%s;color:%s;border:1px solid %s;"
+                    "border-radius:999px;padding:6px 16px;}"
+                    "QPushButton#statusTab:hover{border-color:%s;color:%s;}"
+                    % (card, fg, border, primary, primary))
+
     # ------------------------------------------------------------------
     def refresh(self):
         scope = self._scope
@@ -365,14 +424,21 @@ class GanttPage(Page):
             today = data.get("todayLine")
         elif isinstance(data, list):
             items = data
+        self._all_items = [i for i in items if isinstance(i, dict)]
+        self._today = today
+        self._render_chart()
+
+    def _render_chart(self):
+        items = [i for i in self._all_items if self._match(i, self._status)]
         _clear_layout_keep(self._card.layout, (self._chart, self._empty))
         if items:
-            self._chart.set_data(items, today)
+            self._chart.set_data(items, self._today)
             self._card.add(self._chart)
             self._chart.show()
         else:
             self._card.add(self._empty)
             self._empty.show()
+        self._sync_status_tabs()
 
 
 def _clear_layout_keep(lay, keep):

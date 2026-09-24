@@ -4,3 +4,7 @@ __pycache__/
 venv/
 *.egg-info/
 _err.log
+.env
+.env.*
+*.key
+*.pem

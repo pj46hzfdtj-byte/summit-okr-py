@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QCheckBox, QDateEdit, QDialog, QHBoxLayout, QLabe
 
 from ..page_base import Page
 from ..shell import register_page
-from ..widgets import Card, Chip, EmptyState
+from ..widgets import Card, Chip, EmptyState, RingProgress
 from ...core import api
 from ...core.worker import run_async
 from .goals import _ColorPicker, _dot, _mini_btn, _toast
@@ -267,6 +267,12 @@ class GoalDetailPage(Page):
         bar.addWidget(title, 1)
         if obj.get("isLagging"):
             bar.addWidget(Chip("滞后", "danger"))
+        # VisOKR 风格：标题旁完成度圆环（Vue .obj-ring）
+        ring = RingProgress()
+        ring.setFixedSize(52, 52)
+        ring.set(max(0.0, min(1.0, float(obj.get("currentProgress") or 0))),
+                 obj.get("color") or "#409EFF")
+        bar.addWidget(ring, 0, Qt.AlignVCenter)
         edit_btn = QPushButton("编辑目标")
         edit_btn.clicked.connect(lambda: self._open_edit())
         bar.addWidget(edit_btn)

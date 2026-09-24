@@ -21,6 +21,8 @@ class App(QApplication):
         self.shell = None
         self.toast = None
         self.summit_toast = None
+        self.glance = None
+        self.tray = None
         # QApplication 就绪后再导入：state / pages 在模块级使用 QSettings 与注册表
         from .state import app as app_store
         from .ui import pages as _pages  # noqa: F401  触发页面注册
@@ -28,6 +30,11 @@ class App(QApplication):
         self._server = QLocalServer(self)
         self._server.newConnection.connect(self._raise_existing)
         self._server.listen("summitokr-py-desktop")
+        # 悬浮窗快捷键（仅应用有焦点时生效——PySide6 无系统级全局热键，已知差异）
+        from PySide6.QtGui import QKeySequence, QShortcut
+        self._shortcut = QShortcut(QKeySequence("Ctrl+Alt+W"), self)
+        self._shortcut.setContext(Qt.ApplicationShortcut)
+        self._shortcut.activated.connect(self.toggle_widget)
 
     # ---------- 主题 ----------
     @staticmethod
@@ -100,12 +107,58 @@ class App(QApplication):
         auth.changed.connect(self._on_auth_changed)
         self.shell.show()
 
+    # ---------- 悬浮速览窗 ----------
+    def toggle_widget(self):
+        """显示/隐藏迷你悬浮总览窗（懒创建）。"""
+        if self.glance is None:
+            from .ui.glance import GlanceWidget
+            self.glance = GlanceWidget()
+            self.glance.clicked.connect(self._widget_navigate)
+        if self.glance.isVisible():
+            self.glance.hide()
+        else:
+            self.glance.show()
+            self.glance.raise_()
+
+    def _widget_navigate(self, route: str):
+        """悬浮窗点击路由：唤起主窗口并直达对应页面。"""
+        from .state import auth
+        if not auth.is_authed:
+            self.show_auth()
+            return
+        if self.shell is None:
+            self.show_shell()
+        w = self.shell
+        if w.isMinimized():
+            w.showNormal()
+        w.raise_()
+        w.activateWindow()
+        if route.startswith("/objectives/"):
+            w.open_objective(route.rsplit("/", 1)[-1])
+        else:
+            w.navigate(route)
+
+    def show_main(self):
+        """托盘「显示主窗口」。"""
+        from .state import auth
+        if self.shell:
+            if self.shell.isMinimized():
+                self.shell.showNormal()
+            self.shell.raise_()
+            self.shell.activateWindow()
+        elif auth.is_authed:
+            self.show_shell()
+        else:
+            self.show_auth()
+
 
 def main():
     a = App(sys.argv)
     a.apply_theme()
     from .core.http import http
     from .state import auth
+    from .ui.tray import SummitTray
+    a.tray = SummitTray(a)
     http.set_session_expired_handler(a._on_session_expired)
     auth.initialize()  # 加载持久化 token 并异步验证会话
     if auth.is_authed:

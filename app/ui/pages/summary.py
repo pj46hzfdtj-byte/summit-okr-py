@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QProgressBar, QPushButton,
 from ..page_base import Page
 from ..shell import register_page
 from ..theme import _a
-from ..widgets import Card, Chip
+from ..widgets import Card, Chip, RingProgress
 from ...core import api
 from ...core.worker import run_async
 
@@ -191,6 +191,9 @@ class SummaryPage(Page):
 
         _clear_layout(self._dyn_lay)
 
+        # 顶部统计行（Vue .stat-row：今日添加记录 / 进行中目标 / 今日任务）
+        self._dyn_lay.addWidget(self._stat_row(data))
+
         # 随机动机（Vue .motivation-banner：橙色渐变 + 大引号）
         if motive:
             card = Card(padding=20)
@@ -214,7 +217,7 @@ class SummaryPage(Page):
 
         # 活跃专注周期
         if isinstance(cycle, dict):
-            self._dyn_lay.addWidget(self._cycle_card(cycle))
+            self._dyn_lay.addWidget(self._cycle_card(cycle, data))
 
         # 今日任务
         if tasks:
@@ -225,7 +228,60 @@ class SummaryPage(Page):
             self._dyn_lay.addWidget(self._lagging_card(lagging))
 
     # ------------------------------------------------------------------
-    def _cycle_card(self, cycle: dict) -> Card:
+    def _stat_row(self, data: dict) -> Card:
+        """Vue .stat-row：一行三个小统计项（icon + 数值 + 标签），今日任务可点击跳任务页。"""
+        from ..icons import make_pixmap
+        tokens = self.window().property("summit_tokens") if self.window() else None
+        primary = getattr(tokens, "primary", "#1E40AF") if tokens else "#1E40AF"
+        success = getattr(tokens, "success", "#059669") if tokens else "#059669"
+        danger = getattr(tokens, "destructive", "#DC2626") if tokens else "#DC2626"
+        muted_fg = getattr(tokens, "muted_fg", "#909399") if tokens else "#909399"
+
+        stats = [
+            ("pen", int(data.get("todayAddedRecords") or 0), "今日添加记录", primary, None),
+            ("aim", int(data.get("inProgressObjectives") or 0), "进行中目标", success, None),
+            ("calendar", int(data.get("todayTaskCount") or 0), "今日任务", danger, "/tasks"),
+        ]
+        card = Card(padding=14)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        for i, (glyph, value, label, color, link) in enumerate(stats):
+            item = _ClickRow()
+            h = QHBoxLayout(item)
+            h.setContentsMargins(14, 6, 14, 6)
+            h.setSpacing(8)
+            ic = QLabel()
+            ic.setPixmap(make_pixmap(glyph, color, 16))
+            h.addWidget(ic)
+            v = QLabel(str(value))
+            vf = v.font()
+            vf.setPointSize(15)
+            vf.setBold(True)
+            v.setFont(vf)
+            v.setStyleSheet("color:%s;" % color)
+            h.addWidget(v)
+            cap = QLabel(label)
+            cap.setStyleSheet("color:%s;font-size:12px;" % muted_fg)
+            h.addWidget(cap)
+            if link:
+                arrow = QLabel("\u203a")  # ›
+                arrow.setStyleSheet("color:%s;" % muted_fg)
+                h.addWidget(arrow)
+                item.clicked.connect(lambda p=link: self.shell.navigate(p))
+            else:
+                item.setCursor(Qt.ArrowCursor)
+            row.addWidget(item, 1)
+            if i < len(stats) - 1:
+                sep = QWidget()
+                sep.setFixedWidth(1)
+                sep.setStyleSheet("background:%s;" % (getattr(tokens, "border", "#EBEEF5") if tokens else "#EBEEF5"))
+                row.addWidget(sep)
+        card.add_layout(row)
+        return card
+
+    # ------------------------------------------------------------------
+    def _cycle_card(self, cycle: dict, summary: dict) -> Card:
         card = Card()
         head = QHBoxLayout()
         cap = QLabel("活跃专注周期")
@@ -239,31 +295,61 @@ class SummaryPage(Page):
         head.addWidget(manage)
         card.add_layout(head)
 
-        top = QHBoxLayout()
-        left = QVBoxLayout()
-        name = QLabel(str(cycle.get("name") or ""))
-        name.setProperty("role", "subtitle")
-        dates = QLabel("%s → %s" % (_fmt_date(cycle.get("startAt")), _fmt_date(cycle.get("endAt"))))
-        dates.setProperty("role", "muted")
-        left.addWidget(name)
-        left.addWidget(dates)
-        top.addLayout(left, 1)
-        right = QVBoxLayout()
-        r_right = QHBoxLayout()
-        r_right.addStretch()
-        score_cap = QLabel("周期得分")
-        score_cap.setProperty("role", "muted")
-        score_val = QLabel(str(int(cycle.get("cycleScore") or 0)))
-        score_val.setProperty("role", "kpi")
-        right.addWidget(score_cap)
-        right.addWidget(score_val)
-        top.addLayout(right)
-        card.add_layout(top)
-
         score = int(cycle.get("cycleScore") or 0)
         tokens = self.window().property("summit_tokens") if self.window() else None
         primary = getattr(tokens, "primary", "#409EFF") or "#409EFF"
-        card.add(_progress_bar(score, primary))
+
+        # Vue .cycle-body：圆环（周期进度%）+ 侧边统计（今日增加进度 / 进行中目标 / 周期剩余）
+        body = QHBoxLayout()
+        body.setSpacing(20)
+        ring_col = QVBoxLayout()
+        ring_col.setContentsMargins(6, 4, 6, 4)
+        ring = RingProgress()
+        ring.set(max(0.0, min(1.0, score / 100.0)), primary)
+        ring_col.addWidget(ring, 0, Qt.AlignHCenter)
+        ring_cap = QLabel("周期进度")
+        ring_cap.setProperty("role", "muted")
+        ring_cap.setAlignment(Qt.AlignCenter)
+        ring_col.addWidget(ring_cap)
+        body.addLayout(ring_col)
+
+        side = QVBoxLayout()
+        side.setSpacing(10)
+        name = QLabel(str(cycle.get("name") or ""))
+        name.setProperty("role", "subtitle")
+        side.addWidget(name)
+        dates = QLabel("%s → %s" % (_fmt_date(cycle.get("startAt")), _fmt_date(cycle.get("endAt"))))
+        dates.setProperty("role", "muted")
+        side.addWidget(dates)
+
+        delta = summary.get("todayProgressDelta")
+        delta_txt = "0" if delta is None else ("%g" % round(float(delta) * 100, 1))
+        obj_n = len(cycle.get("objectives") or [])
+        remain = summary.get("cycleDaysRemaining")
+        items = [(delta_txt + "%", "今日增加进度"), (str(obj_n) + "个", "进行中目标")]
+        if remain is not None:
+            items.append((str(int(remain)) + "天", "周期剩余"))
+        stats = QHBoxLayout()
+        stats.setSpacing(28)
+        for val_txt, cap_txt in items:
+            col = QVBoxLayout()
+            col.setSpacing(2)
+            v = QLabel(val_txt)
+            vf = v.font()
+            vf.setPointSize(15)
+            vf.setBold(True)
+            v.setFont(vf)
+            v.setStyleSheet("color:%s;" % primary)
+            c2 = QLabel(cap_txt)
+            c2.setProperty("role", "muted")
+            col.addWidget(v)
+            col.addWidget(c2)
+            stats.addLayout(col)
+        stats.addStretch()
+        side.addLayout(stats)
+        side.addStretch()
+        body.addLayout(side, 1)
+        card.add_layout(body)
 
         for oco in cycle.get("objectives") or []:
             if not isinstance(oco, dict):

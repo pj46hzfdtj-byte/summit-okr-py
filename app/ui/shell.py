@@ -81,6 +81,16 @@ class Shell(QMainWindow):
         tb.addWidget(self.logo_text)
         tb.addStretch()
 
+        from .icons import make_icon
+        self.glance_btn = QToolButton()
+        self.glance_btn.setIcon(make_icon("sparkle", "#606266", 18))
+        self.glance_btn.setFixedSize(36, 36)
+        self.glance_btn.setAutoRaise(True)
+        self.glance_btn.setCursor(Qt.PointingHandCursor)
+        self.glance_btn.setToolTip("悬浮速览 (Ctrl+Alt+W)")
+        self.glance_btn.clicked.connect(self._toggle_glance)
+        tb.addWidget(self.glance_btn)
+
         self.bell = QToolButton()
         self.bell.setIcon(self._bell_icon("#606266"))
         self.bell.setFixedSize(36, 36)
@@ -176,7 +186,19 @@ class Shell(QMainWindow):
         self.bell.setStyleSheet(
             "QToolButton{background:transparent;border:none;font-size:16px;border-radius:6px;}"
             "QToolButton:hover{background:%s;}" % t.hairline)
+        from .icons import make_icon
+        self.glance_btn.setIcon(make_icon("sparkle", t.secondary_fg, 18))
+        self.glance_btn.setStyleSheet(
+            "QToolButton{background:transparent;border:none;font-size:16px;border-radius:6px;}"
+            "QToolButton:hover{background:%s;}" % t.hairline)
         self._refresh_nav_icons()
+
+    def _toggle_glance(self):
+        from PySide6.QtWidgets import QApplication
+        app_inst = QApplication.instance()
+        toggle = getattr(app_inst, "toggle_widget", None)
+        if callable(toggle):
+            toggle()
 
     def _refresh_nav_icons(self):
         t = self._tokens()

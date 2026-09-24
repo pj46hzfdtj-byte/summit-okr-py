@@ -18,8 +18,8 @@ PRESET_COLORS = ["#409EFF", "#1E40AF", "#67C23A", "#F56C6C",
 
 
 def _toast(msg: str, kind: str = "info"):
-    from PySide6.QtWidgets import qApp
-    t = getattr(qApp, "summit_toast", None)
+    from PySide6.QtWidgets import QApplication
+    t = getattr(QApplication.instance(), "summit_toast", None)
     if t:
         t.show_msg(msg, kind)
 

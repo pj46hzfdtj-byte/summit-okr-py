@@ -5,17 +5,36 @@ import datetime
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox,
-                               QPlainTextEdit, QPushButton, QRadioButton, QScrollArea,
-                               QSlider, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QDialog, QFrame, QHBoxLayout, QLabel,
+                               QMessageBox, QPlainTextEdit, QPushButton, QRadioButton,
+                               QScrollArea, QSlider, QVBoxLayout, QWidget)
 
 from ..page_base import Page
 from ..shell import register_page
+from ..theme import _a
 from ..widgets import Card, Chip, EmptyState
 from ...core import api
 from ...core.worker import run_async
 
 TYPE_LABEL = {"midterm": "期中", "final": "期末"}
+
+# Vue SELF_EMOJIS：按自评 0/40/60/70/90 阈值取 emoji + 文案
+SELF_EMOJIS = [
+    (0, "\U0001f623", "很不理想"),    # 😣
+    (40, "\U0001f615", "不太满意"),   # 😕
+    (60, "\U0001f642", "还不错"),     # 🙂
+    (70, "\U0001f60a", "很满意"),     # 😊
+    (90, "\U0001f929", "太棒了"),     # 🤩
+]
+
+
+def self_emoji(rating01) -> tuple:
+    v = int(round(max(0.0, min(1.0, float(rating01 or 0))) * 100))
+    cur = SELF_EMOJIS[0]
+    for e in SELF_EMOJIS:
+        if v >= e[0]:
+            cur = e
+    return cur  # (min, emoji, label)
 
 
 def _toast(msg: str, kind: str = "info"):
@@ -63,6 +82,58 @@ def _progress_bar(value: int, color: str) -> QWidget:
     bar.setFixedHeight(8)
     bar.setStyleSheet("QProgressBar::chunk{background:%s;border-radius:4px;}" % color)
     return bar
+
+
+def _hero_score(r: dict) -> QWidget:
+    """Vue .review-hero-score：emoji 大分数（自评 + 文案 + 目标得分），按 success/warning/danger 着色。"""
+    rating01 = float(r.get("selfRating") or 0)
+    v = int(round(max(0.0, min(1.0, rating01)) * 100))
+    _min, emoji, label = self_emoji(rating01)
+    if rating01 >= 0.7:
+        color = "#059669"   # --summit-success
+    elif rating01 >= 0.4:
+        color = "#D97706"   # --summit-accent
+    else:
+        color = "#DC2626"   # --summit-danger
+
+    box = QFrame()
+    box.setObjectName("heroScore")
+    box.setStyleSheet("QFrame#heroScore{background:%s;border-radius:8px;}" % _a(color, 0.12))
+    h = QHBoxLayout(box)
+    h.setContentsMargins(12, 4, 14, 4)
+    h.setSpacing(8)
+    em = QLabel(emoji)
+    emf = em.font()
+    emf.setPointSize(19)
+    em.setFont(emf)
+    h.addWidget(em)
+    val = QLabel(str(v))
+    valf = val.font()
+    valf.setPointSize(22)
+    valf.setBold(True)
+    val.setFont(valf)
+    val.setStyleSheet("color:%s;background:transparent;" % color)
+    h.addWidget(val)
+    meta = QVBoxLayout()
+    meta.setContentsMargins(0, 0, 0, 0)
+    meta.setSpacing(1)
+    lab = QLabel("自评 · %s" % label)
+    labf = lab.font()
+    labf.setPointSize(9)
+    labf.setBold(True)
+    lab.setFont(labf)
+    lab.setStyleSheet("color:%s;background:transparent;" % color)
+    meta.addWidget(lab)
+    oscore = r.get("objectiveScore")
+    if oscore is not None:
+        sub = QLabel("目标得分 %s" % oscore)
+        subf = sub.font()
+        subf.setPointSize(9)
+        sub.setFont(subf)
+        sub.setStyleSheet("color:%s;background:transparent;" % _a(color, 0.85))
+        meta.addWidget(sub)
+    h.addLayout(meta)
+    return box
 
 
 def _clear_layout(lay) -> None:
@@ -433,12 +504,7 @@ class ReviewsPage(Page):
             link.clicked.connect(lambda: self.shell.open_objective(obj["id"]))
             head.addWidget(link)
         head.addStretch()
-        self_pct = _pct(r.get("selfRating"))
-        head.addWidget(Chip("自评 %d" % self_pct,
-                            "success" if self_pct >= 70 else ("warning" if self_pct >= 40 else "danger")))
-        oscore = r.get("objectiveScore")
-        if oscore is not None:
-            head.addWidget(Chip("目标 %s" % oscore, "true"))
+        head.addWidget(_hero_score(r))
         when = QLabel(_fmt_dt(r.get("createdAt")))
         when.setProperty("role", "muted")
         head.addWidget(when)
